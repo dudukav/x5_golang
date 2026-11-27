@@ -5,6 +5,9 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"hw5/internal/model"
 )
 
@@ -16,17 +19,14 @@ func TestCreateAndGetByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if created != order {
-		t.Fatalf("Create() = %#v, want %#v", created, order)
-	}
+	assert.Equal(t, order, created)
 
 	got, err := repository.GetByID(1)
 	if err != nil {
 		t.Fatalf("GetByID() error = %v", err)
 	}
-	if got != order {
-		t.Fatalf("GetByID() = %#v, want %#v", got, order)
-	}
+	assert.Equal(t, order, got)
+	assert.NotSame(t, order, got)
 }
 
 func TestCreateAlreadyExists(t *testing.T) {
@@ -66,9 +66,8 @@ func TestUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if got != updated {
-		t.Fatalf("Update() = %#v, want %#v", got, updated)
-	}
+	assert.Equal(t, updated, got)
+	assert.NotSame(t, updated, got)
 }
 
 func TestUpdateNotFound(t *testing.T) {
@@ -172,4 +171,22 @@ func TestGetByCustomerNotFound(t *testing.T) {
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("GetByCustomer() error = %v, want %v", err, ErrNotFound)
 	}
+}
+
+func TestListIsSortedAndIndependent(t *testing.T) {
+	repository := New()
+	for _, order := range []*model.Order{{ID: 3}, {ID: 1}, {ID: 2}} {
+		_, err := repository.Create(order)
+		require.NoError(t, err)
+	}
+
+	orders, err := repository.List()
+	require.NoError(t, err)
+	require.Len(t, orders, 3)
+	assert.Equal(t, []int{1, 2, 3}, []int{orders[0].ID, orders[1].ID, orders[2].ID})
+
+	orders[0].Status = model.StatusCompleted
+	stored, err := repository.GetByID(1)
+	require.NoError(t, err)
+	assert.NotEqual(t, model.StatusCompleted, stored.Status)
 }

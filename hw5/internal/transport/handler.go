@@ -1,55 +1,116 @@
 package transport
 
-import "hw5/internal/model"
+import (
+	"context"
 
-type Handler struct {
+	"hw5/internal/model"
+)
+
+type Server struct {
 	orders OrderService
 }
 
-type CreateRequest struct {
-	Customer string
-	Items    []model.Item
+var _ StrictServerInterface = (*Server)(nil)
+
+func New(orders OrderService) *Server {
+	return &Server{orders: orders}
 }
 
-type UpdateRequest struct {
-	ID       int
-	Customer string
-	Status   string
-	Items    []model.Item
+func (h *Server) Health(context.Context, HealthRequestObject) (HealthResponseObject, error) {
+	status := "ok"
+	return Health200JSONResponse{Status: &status}, nil
 }
 
-func New(orders OrderService) *Handler {
-	return &Handler{orders: orders}
-}
+func (h *Server) CreateOrder(_ context.Context, request CreateOrderRequestObject) (CreateOrderResponseObject, error) {
+	items := make([]model.Item, len(request.Body.Items))
+	for i, item := range request.Body.Items {
+		items[i] = model.Item{Name: item.Name, Quantity: item.Quantity, Price: item.Price}
+	}
 
-func (h *Handler) Create(request CreateRequest) (*model.Order, error) {
-	return h.orders.Create(&model.Order{
-		Customer: request.Customer,
-		Items:    request.Items,
+	order, err := h.orders.Create(&model.Order{
+		Customer: stringValue(request.Body.Customer),
+		Items:    items,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return CreateOrder201JSONResponse(orderResponse(order)), nil
 }
 
-func (h *Handler) GetByID(id int) (*model.Order, error) {
-	return h.orders.GetByID(id)
+func (h *Server) ListOrders(context.Context, ListOrdersRequestObject) (ListOrdersResponseObject, error) {
+	orders, err := h.orders.List()
+	if err != nil {
+		return nil, err
+	}
+
+	response := make(ListOrders200JSONResponse, len(orders))
+	for i, order := range orders {
+		response[i] = orderResponse(order)
+	}
+	return response, nil
 }
 
-func (h *Handler) Update(request UpdateRequest) (*model.Order, error) {
-	return h.orders.Update(&model.Order{
-		ID:       request.ID,
-		Customer: request.Customer,
-		Status:   request.Status,
-		Items:    request.Items,
-	})
+func (h *Server) GetOrder(_ context.Context, request GetOrderRequestObject) (GetOrderResponseObject, error) {
+	order, err := h.orders.GetByID(request.Id)
+	if err != nil {
+		return nil, err
+	}
+	return GetOrder200JSONResponse(orderResponse(order)), nil
 }
 
-func (h *Handler) Delete(id int) error {
-	return h.orders.Delete(id)
+func (h *Server) UpdateOrderStatus(_ context.Context, request UpdateOrderStatusRequestObject) (UpdateOrderStatusResponseObject, error) {
+	order, err := h.orders.UpdateStatus(request.Id, model.Status(request.Body.Status))
+	if err != nil {
+		return nil, err
+	}
+	return UpdateOrderStatus200JSONResponse(orderResponse(order)), nil
 }
 
-func (h *Handler) GetItems(id int) ([]model.Item, error) {
-	return h.orders.GetItems(id)
+func (h *Server) GetOrderHistory(_ context.Context, request GetOrderHistoryRequestObject) (GetOrderHistoryResponseObject, error) {
+	history, err := h.orders.History(request.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	response := make(GetOrderHistory200JSONResponse, len(history))
+	for i, change := range history {
+		response[i] = statusChangeResponse(change)
+	}
+	return response, nil
 }
 
-func (h *Handler) GetByCustomer(customer string) ([]*model.Order, error) {
-	return h.orders.GetByCustomer(customer)
+func orderResponse(order *model.Order) Order {
+	items := make([]Item, len(order.Items))
+	for i, item := range order.Items {
+		items[i] = Item{Name: item.Name, Quantity: item.Quantity, Price: item.Price}
+	}
+	history := make([]StatusChange, len(order.History))
+	for i, change := range order.History {
+		history[i] = statusChangeResponse(change)
+	}
+
+	var customer *string
+	if order.Customer != "" {
+		customer = &order.Customer
+	}
+	return Order{
+		Id:         order.ID,
+		Customer:   customer,
+		Items:      items,
+		TotalPrice: order.TotalPrice,
+		Status:     Status(order.Status),
+		CreatedAt:  order.CreatedAt,
+		History:    history,
+	}
+}
+
+func statusChangeResponse(change model.StatusChange) StatusChange {
+	return StatusChange{Status: Status(change.Status), ChangedAt: change.ChangedAt}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
